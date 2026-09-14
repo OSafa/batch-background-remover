@@ -6,6 +6,14 @@ echo ====================================================
 
 cd /d "%~dp0"
 
+where python >nul 2>nul
+if %errorlevel% neq 0 (
+    echo [ERROR] Python was not found in your system PATH!
+    echo Please install Python 3.11 (64-bit) from python.org and ensure "Add python.exe to PATH" is checked during installation.
+    pause
+    exit /b 1
+)
+
 if not exist ".venv\Scripts\python.exe" (
     echo Creating virtual environment...
     python -m venv .venv

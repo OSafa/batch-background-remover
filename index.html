@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Portrait Background Remover & BC7 DDS Exporter</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="top-bar">
+      <div class="brand">
+        <div class="logo-icon">✨</div>
+        <div>
+          <h1>AI Portrait Background Remover</h1>
+          <span class="sub-title">BiRefNet + YOLO-Pose • CUDA 13 • BC7 DDS</span>
+        </div>
+      </div>
+
+      <div class="system-status">
+        <span class="badge gpu-badge" id="gpuStatus">
+          <span class="status-dot"></span> NVIDIA GeForce RTX 5070 Ti (CUDA 13)
+        </span>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="workspace">
+      <!-- Left Sidebar: Controls -->
+      <aside class="sidebar">
+        <div class="panel-section">
+          <h2>Torso Pre-Cropping</h2>
+
+          <div class="control-group checkbox-group">
+            <label class="toggle-container">
+              <input type="checkbox" id="autoTorsoToggle" checked>
+              <span class="toggle-slider"></span>
+              <span class="toggle-label">Auto Torso Crop (AI Pose)</span>
+            </label>
+            <span class="help-text">Pinpoints torso and crops full-body photos using YOLO-Pose.</span>
+          </div>
+
+          <div class="control-group" id="torsoPresetGroup">
+            <label for="torsoPreset">Torso Framing Preset</label>
+            <select id="torsoPreset" class="select-input">
+              <option value="waist" selected>Waist / Belt Line (Standard)</option>
+              <option value="mid_thigh">Mid-Thigh / Hips</option>
+              <option value="bust">Bust / Upper Chest</option>
+              <option value="custom">Custom Crop</option>
+              <option value="none">Full Image (No Pre-Crop)</option>
+            </select>
+            <span class="help-text">Adjust the on-screen crop box anytime by dragging handles.</span>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <h2>Dimensions & Scaling</h2>
+          
+          <div class="control-group">
+            <label for="maxHeightNum">
+              <span>Max Height</span>
+              <div class="input-with-unit">
+                <input type="number" id="maxHeightNum" min="16" max="4096" step="1" value="340">
+                <span class="unit">px</span>
+              </div>
+            </label>
+            <input type="range" id="maxHeight" min="64" max="1024" step="4" value="340">
+            <div class="presets">
+              <button class="preset-btn active" data-val="340">340 (Default)</button>
+              <button class="preset-btn" data-val="256">256</button>
+              <button class="preset-btn" data-val="512">512</button>
+              <button class="preset-btn" data-val="1024">1024</button>
+            </div>
+            <span class="help-text">Width is auto-aligned to multiple of 4 for BC7 compression.</span>
+          </div>
+
+          <div class="control-group">
+            <label for="featherRadius">
+              <span>Edge Feather Radius</span>
+              <span class="value-display" id="featherRadiusVal">1.5 px</span>
+            </label>
+            <input type="range" id="featherRadius" min="0.0" max="6.0" step="0.1" value="1.5">
+            <span class="help-text">Gaussian alpha smoothing on person silhouette border.</span>
+          </div>
+
+          <div class="control-group">
+            <label for="cropMargin">
+              <span>Person Crop Margin</span>
+              <span class="value-display" id="cropMarginVal">8 px</span>
+            </label>
+            <input type="range" id="cropMargin" min="0" max="40" step="1" value="8">
+            <span class="help-text">Padding margin around detected person bounding box.</span>
+          </div>
+
+          <div class="control-group checkbox-group">
+            <label class="toggle-container">
+              <input type="checkbox" id="defringeToggle" checked>
+              <span class="toggle-slider"></span>
+              <span class="toggle-label">Color Defringing (Remove Halo)</span>
+            </label>
+            <span class="help-text">Eliminates background color halos around hair and body edges.</span>
+          </div>
+
+          <div class="control-group checkbox-group">
+            <label class="toggle-container">
+              <input type="checkbox" id="mipmapsToggle">
+              <span class="toggle-slider"></span>
+              <span class="toggle-label">Generate Mipmaps</span>
+            </label>
+            <span class="help-text">Keep off (single mip level) for crisp 2D portraits and UI.</span>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <h2>Export Destination</h2>
+          <div class="control-group">
+            <label for="outputFolder">Output Directory on Disk (Optional)</label>
+            <input type="text" id="outputFolder" placeholder="e.g. D:\Textures or leave empty for browser download" value="">
+            <span class="help-text">If set, .dds files are saved directly into this folder.</span>
+          </div>
+        </div>
+
+        <div class="sidebar-actions">
+          <button id="processAllBtn" class="btn primary-btn" disabled>
+            🚀 Process Batch (<span id="batchCountBadge">0</span>)
+          </button>
+          <button id="downloadZipBtn" class="btn secondary-btn" disabled>
+            📦 Download All (.ZIP)
+          </button>
+        </div>
+      </aside>
+
+      <!-- Center: Main Preview Stage -->
+      <section class="stage">
+        <!-- Stage Toolbar -->
+        <div class="stage-toolbar">
+          <div class="view-toggles">
+            <button class="view-btn active" data-mode="side">Side by Side</button>
+            <button class="view-btn" data-mode="cutout">Cutout Only</button>
+            <button class="view-btn" data-mode="orig">Original Only</button>
+            <button class="view-btn" data-mode="mask">Alpha Mask</button>
+          </div>
+
+          <div class="info-badges">
+            <span class="info-pill" id="dimensionsBadge">0 × 0 px</span>
+            <span class="info-pill" id="timeBadge">Ready</span>
+            <span class="info-pill format-pill">BC7_UNORM</span>
+          </div>
+
+          <div class="stage-actions">
+            <button id="downloadCurrentBtn" class="btn action-btn" disabled>
+              💾 Save DDS
+            </button>
+          </div>
+        </div>
+
+        <!-- Viewport Container -->
+        <div class="viewport-wrapper">
+          <!-- Dropzone (Visible when no images loaded) -->
+          <div class="dropzone" id="dropzone">
+            <div class="dropzone-content">
+              <div class="drop-icon">📁</div>
+              <h3>Drag & Drop Full-Body or Portrait Photos</h3>
+              <p>Supports JPG, PNG, WEBP, BMP (Single Image or Multi-file Batch)</p>
+              <div class="dropzone-buttons">
+                <label class="btn file-input-label">
+                  Choose Files
+                  <input type="file" id="fileInput" multiple accept="image/*">
+                </label>
+                <label class="btn file-input-label secondary">
+                  Choose Folder
+                  <input type="file" id="folderInput" webkitdirectory directory multiple>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Active Preview Viewport -->
+          <div class="preview-stage hidden" id="previewStage">
+            <!-- Side by Side View (Default) -->
+            <div class="side-by-side-container" id="sideBySideContainer">
+              <div class="side-panel">
+                <div class="side-panel-header">
+                  <span class="side-label">Original Image</span>
+                  <span class="crop-indicator-badge" id="cropBadge">Drag box to adjust crop</span>
+                </div>
+                <div class="side-img-box crop-host" id="cropHost">
+                  <img id="sideOrigImg" src="" alt="Original">
+                  <!-- Interactive Crop Overlay -->
+                  <div class="crop-box" id="cropBox">
+                    <div class="crop-handle handle-nw" data-handle="nw"></div>
+                    <div class="crop-handle handle-ne" data-handle="ne"></div>
+                    <div class="crop-handle handle-sw" data-handle="sw"></div>
+                    <div class="crop-handle handle-se" data-handle="se"></div>
+                    <div class="crop-handle handle-n" data-handle="n"></div>
+                    <div class="crop-handle handle-s" data-handle="s"></div>
+                    <div class="crop-handle handle-w" data-handle="w"></div>
+                    <div class="crop-handle handle-e" data-handle="e"></div>
+                    <div class="crop-label" id="cropBoxLabel">Waist Crop</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="side-panel">
+                <div class="side-panel-header">
+                  <span class="side-label" id="processedSideLabel">Processed Cutout (BC7)</span>
+                </div>
+                <div class="side-img-box checkerboard-bg">
+                  <img id="sideCutoutImg" src="" alt="Cutout">
+                </div>
+              </div>
+            </div>
+
+            <!-- Single Focus View -->
+            <div class="single-view-container hidden" id="singleViewContainer">
+              <div class="single-img-box" id="singleImgBox">
+                <img id="singleViewImg" src="" alt="Preview">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom: Batch Filmstrip Gallery -->
+        <footer class="batch-filmstrip">
+          <div class="filmstrip-header">
+            <h3>Batch Queue & Quick Preview</h3>
+            <div class="batch-summary">
+              <span id="batchStatusText">0 items loaded</span>
+              <button id="clearBatchBtn" class="btn text-btn">Clear All</button>
+            </div>
+          </div>
+          <div class="thumbnail-track" id="thumbnailTrack">
+            <!-- Thumbnails injected dynamically -->
+          </div>
+        </footer>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>
