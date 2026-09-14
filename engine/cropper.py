@@ -14,11 +14,18 @@ def get_yolo_pose_model(model_name: str = "yolo11n-pose.pt", device: Optional[st
     if _CACHED_YOLO_MODEL is not None:
         return _CACHED_YOLO_MODEL
 
+    from pathlib import Path
     from ultralytics import YOLO
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Loading YOLO-Pose model ({model_name}) on {device.upper()}...")
-    model = YOLO(model_name)
+
+    # Resolve local weights in project root if available
+    base_dir = Path(__file__).parent.parent
+    local_weights = base_dir / model_name
+    target_weights = str(local_weights) if local_weights.exists() else model_name
+
+    model = YOLO(target_weights)
     _CACHED_YOLO_MODEL = model
     return model
 
